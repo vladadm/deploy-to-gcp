@@ -1,0 +1,136 @@
+# GCP environment definitions
+gcp_project:
+  name: example-project # GCP Project ID
+  service_account: deploy-sa@example-project.iam.gserviceaccount.com # SA from GCP project
+  region: asia-southeast1 # Region of instance group
+  zones:
+    - asia-southeast1-a
+    - asia-southeast1-b
+    - asia-southeast1-c
+  network: projects/example-project/global/networks/example-project-vpc
+  subnetwork: projects/example-project/regions/asia-southeast1/subnetworks/example-project-subnet
+
+
+# Application Service
+service_name: my-app
+repository: ''
+artifact: ''
+binary_file: ''
+#nexus_repository: nuget-hosted
+healthcheck_endpoint: /healthcheck
+service_instances:
+  - name: my-app-service-00
+    port:
+      http: 8080 # HTTP
+    healthcheck: "health-check-resource-name-for-service-00" # healthcheck for backend service
+  - name: my-app-service-01
+      port:
+        http: 8081 # HTTP
+      healthcheck: "health-check-resource-name-for-service-01" # healthcheck for backend service
+  - name: my-app-service-02
+      port:
+        http: 8082 # HTTP
+      healthcheck: "health-check-resource-name-for-service-02" # healthcheck for backend service
+
+
+# GCP Google Compute Engine
+# Definitions of instance in instance group
+gce_instance:
+  base_gcp_instance: initial-instance-name
+  dataDisk: 'D:\'
+  filebeatPath: 'C:\ProgramData\Elastic\\Beats\\filebeat\'
+  filebeatConfigFile: 'C:\ProgramData\Elastic\Beats\filebeat\filebeat.yml'
+  filebeatServicesDir: 'C:\ProgramData\Elastic\Beats\filebeat\services.d\'
+  elasticSeachIndex: elk-index-name
+  disks:
+    - boot: True
+      diskSizeGb: 80
+      diskType: pd-balanced
+      source_disk: projects/gcp-project-id/zones/asia-southeast1-a/disks/instance-name-boot-disk
+    - boot: False
+      diskSizeGb: 50
+      diskType: pd-balanced
+      source_disk: projects/gcp-project-id/zones/asia-southeast1-a/disks/instance-name-data-disk
+  base_instance_name: my-app-vm # Base name of instances in instance group
+  machine_type: e2-custom-2-8192
+  source_boot_disk: projects/gcp-project-id/zones/asia-southeast1-a/disks/instance-name-boot-disk
+  source_data_disk: projects/gcp-project-id/zones/asia-southeast1-a/disks/instance-name-data-disk
+  tags: # Network tags of instances in instance group
+    - mig-vm
+    - tag0
+    - tag1
+  scaling:
+    maxNumReplicas: 4
+    minNumReplicas: 3
+
+# GCP Google Compute Engine Managed Instance Group
+gce_instance_group:
+  size: 3
+  autoHealing:
+    initialDelaySec: 120
+    healthCheck: projects/gcp-project-id/global/healthChecks/health-check-resource-name-for-service-02 # Instance Group healthcheck
+  distributionPolicy:
+    targetShape: EVEN
+    zones:
+      - zone: "https://www.googleapis.com/compute/v1/projects/gcp-project-id/zones/asia-southeast1-a"
+      - zone: "https://www.googleapis.com/compute/v1/projects/gcp-project-id/zones/asia-southeast1-b"
+      - zone: "https://www.googleapis.com/compute/v1/projects/gcp-project-id/zones/asia-southeast1-c"
+
+  targetSize: 3 # Instance group initial node count default 1 ( prod 3 )
+  scaling:
+    mode: 'ON'
+    maxNumReplicas: 3 # Max Node count of autoscaler default 3
+    minNumReplicas: 2 # Min Node count of autoscaler default 3
+    coolDownPeriodSec: 60 # seconds
+    cpuUtilizationTarget: 0.8 #
+    customMetricUtilizations:
+      # Memory autoscale target params
+      - utilizationTarget: 80 # memory utilization percent
+        metric: 'agent.googleapis.com/memory/percent_used'
+        filter: 'metric.labels.state = "used"'
+        utilizationTargetType: GAUGE
+      # TCP connection autoscale target params
+      - utilizationTarget: 2500 # established connection count
+        metric: 'agent.googleapis.com/network/tcp_connections'
+        filter: 'metric.labels.tcp_state = "ESTABLISHED"'
+        utilizationTargetType: GAUGE
+
+# GCP Google Compute Engine Load balancer
+load_balancer:
+  loadBalancingScheme: INTERNAL
+  protocol: TCP
+  sessionAffinity: 'NONE'
+  timeoutSec: 30
+  balancingMode: CONNECTION
+  drainingTimeoutSec: 0
+
+# Google Kubernetes Engine
+gke_cluster:
+  name: gke-cluster-name
+  namespace: namespace with ingress
+  ingress:
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/rewrite-target: '/$2'
+    protocol: http
+  instances:
+    - kind_name: my-app-service-00
+      url:
+        - "my-app-service-00.domain.com"
+      path: /app00(/|$)(.*)
+      pathType: Prefix
+      protocol: http
+      # tls:
+      #   hosts: == url
+      #   secretName: == url
+    - kind_name: my-app-service-01
+      url:
+        - "my-app-service-01.domain.com"
+        path: /app01(/|$)(.*)
+        pathType: Prefix
+        protocol: http
+      path: /demo02/trading(/|$)(.*)
+      pathType: Prefix
+      protocol: http
+
